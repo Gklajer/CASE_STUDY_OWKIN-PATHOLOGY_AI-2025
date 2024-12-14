@@ -193,3 +193,5 @@ cython_debug/
 
 wandb
 .vscode/settings.json
+
+**/.DS_Store

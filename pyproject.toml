@@ -1,5 +1,5 @@
 [project]
-name = "case-study-owkin"
+name = "gklajer_case_study"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -17,3 +17,7 @@ dependencies = [
     "transformers>=4.47.0",
     "wandb>=0.19.1",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
