@@ -3,14 +3,12 @@ from typing import Union
 
 import kagglehub
 
-KAGGLE_DATA_HANDLE = os.path.join("rftexas", "tiled-consep-224x224px")
-KAGGLE_HELPER_FUNCTIONS_HANDLE = os.path.join(
-    "rftexas", "owkin-case-study-helper-functions"
+from .constants import (
+    KAGGLE_DATA_HANDLE,
+    KAGGLE_INPUT_DATA_PATH,
+    KAGGLE_WEIGHTS_HANDLE,
+    KAGGLE_WEIGHTS_PATH,
 )
-KAGGLE_WEIGHTS_HANDLE = os.path.join("afiltowk", "phikon/PyTorch/default/1")
-KAGGLE_INPUT_HELPER_FUNCTIONS_PATH = "/kaggle/input/owkin-case-study-helper-functions/"
-KAGGLE_INPUT_DATA_PATH = "/kaggle/input/tiled-consep-224x224px/consep"
-KAGGLE_WEIGHTS_PATH = "/kaggle/input/phikon/pytorch/default/1/phikon.pth"
 
 
 def download_from_kaggle_if_missing(
@@ -45,10 +43,10 @@ def download_from_kaggle_if_missing(
 
 def fetch_kaggle_paths() -> os.PathLike:
     """
-    Fetch the model weights, data, and helper functions from Kaggle.
+    Fetch the model weights, data from Kaggle.
 
     Returns:
-        The path to the model weights, data, and helper functions.
+        The path to the model weights, data.
     """
 
     weights_path = download_from_kaggle_if_missing(
@@ -57,8 +55,5 @@ def fetch_kaggle_paths() -> os.PathLike:
     data_path = download_from_kaggle_if_missing(
         KAGGLE_INPUT_DATA_PATH, KAGGLE_DATA_HANDLE
     )
-    helper_functions_path = download_from_kaggle_if_missing(
-        KAGGLE_INPUT_HELPER_FUNCTIONS_PATH, KAGGLE_HELPER_FUNCTIONS_HANDLE
-    )
 
-    return weights_path, data_path, helper_functions_path
+    return weights_path, data_path

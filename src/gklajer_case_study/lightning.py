@@ -1,13 +1,67 @@
+import os
 from collections import OrderedDict
 from typing import Callable, Optional, Sequence, Union
 
 import lightning as L
 import torch
 import torch.nn.functional as F
-import torch.optim.lr_scheduler as lr_scheduler
-from torch import Tensor, nn, optim
+import wandb
+from lightning.pytorch.callbacks import Callback
+from lightning.pytorch.loggers import WandbLogger
+from torch import Tensor, nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
+from transformers import get_scheduler
+
+from .utils.helpers import get_raw_image
+from .utils.postprocess import extract_mask_with_instance_labels
+
+
+class LogPredictionsCallback(Callback):
+    def __init__(self, wandb_logger: WandbLogger, tiles_path: Union[str, os.PathLike]):
+        super().__init__()
+        self.wandb_logger = wandb_logger
+        self.tiles_path = tiles_path
+
+    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        """Called when the validation batch ends."""
+
+        if batch_idx == 0:
+            _, targets, roi_names = batch
+            preds = (
+                F.softmax(outputs["np"], dim=1),
+                outputs["tp"].argmax(1),
+                outputs["hv"],
+            )
+            targets = (
+                F.one_hot(targets["np"].long()).permute(0, 3, 1, 2),
+                targets["tp"],
+                targets["hv"].permute(0, 3, 1, 2),
+            )
+
+            preds, targets = tuple(
+                zip(*(list(branch.cpu().detach().numpy()) for branch in branchs))
+                for branchs in (
+                    preds,
+                    targets,
+                )
+            )
+
+            data = [[wandb.Image(
+                    get_raw_image(self.tiles_path, roi_name),
+                    masks={
+                        title: {
+                            "mask_data": extract_mask_with_instance_labels(*branchs)
+                        }
+                        for branchs, title in zip(
+                            (pred, target), ("prediction", "ground_truth")
+                        )
+                    },
+                )] 
+            for pred, target, roi_name in zip(preds, targets, roi_names)]
+                
+
+            self.wandb_logger.log_table(key="sample_table", columns=["segmentation"], data=data)
 
 
 class LightningModel(L.LightningModule):
@@ -18,6 +72,7 @@ class LightningModel(L.LightningModule):
         metrics_dict: dict[str, Sequence[Callable[[Tensor, Tensor], float]]],
         clf_keys: set[str],
         reg_keys: set[str],
+        tiles_path: Union[str, os.PathLike],
     ):
         """
         Initialize the LightningModule.
@@ -28,6 +83,7 @@ class LightningModel(L.LightningModule):
             metrics: Dictionary of metrics to compute.
             clf_keys: Set of classification keys.
             reg_keys: Set of regression keys.
+            tiles_path: The path to the folder containing the tiles saved as <roi_name>.png.
         """
 
         super().__init__()
@@ -35,6 +91,7 @@ class LightningModel(L.LightningModule):
         self.clf_keys, self.reg_keys = clf_keys, reg_keys
         self.criterion = criterion
         self.metrics_dict = metrics_dict
+        self.tiles_path = tiles_path
 
     def _step(
         self,
@@ -209,15 +266,17 @@ class LightningModel(L.LightningModule):
         Returns:
             The optimizer and the learning rate scheduler.
         """
-        optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": lr_scheduler.OneCycleLR(
-                optimizer,
-                max_lr=1e-3,
-                total_steps=self.trainer.estimated_stepping_batches,
-            ),
-        }
+
+        optimizer = torch.optim.AdamW(
+            self.parameters(), lr=1e-3, betas=[0.9, 0.999], eps=1e-6, weight_decay=0.03
+        )
+        scheduler = get_scheduler(
+            optimizer=optimizer,
+            name="cosine",
+            num_warmup_steps=15000,
+            num_training_steps=450000,
+        )
+        return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
 
     def training_step(self, batch, batch_idx) -> Tensor:
         """
